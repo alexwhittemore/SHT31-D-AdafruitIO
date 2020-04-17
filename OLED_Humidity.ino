@@ -1,20 +1,36 @@
 // Built on heltec ESP32 kit samples
 
-#include <Wire.h>  // Only needed for Arduino 1.6.5 and earlier
+// Based on Adafruit IO Publish Example
+//
+// Adafruit invests time and resources providing this open source code.
+// Please support Adafruit and open source hardware by purchasing
+// products from Adafruit!
+//
+// Written by Todd Treece for Adafruit Industries
+// Copyright (c) 2016 Adafruit Industries
+// Licensed under the MIT license.
+//
+// All text above must be included in any redistribution.
+
+/************************** Configuration ***********************************/
+
+// edit the config.h tab and enter your Adafruit IO credentials
+// and any additional configuration needed for WiFi, cellular,
+// or ethernet clients.
+#include "config.h"
 #include "SSD1306.h" // alias for `#include "SSD1306Wire.h"`
 #include "Adafruit_SHT31.h"
+#include <Math.h>
 
-// Web server includes
-#include <WiFi.h>
-#include <WiFiClient.h>
-#include <WebServer.h>
-#include <ESPmDNS.h>
-#include "credentials.h"
 
-WebServer server(80);
+// set up the feeds
+AdafruitIO_Feed *esp32temp = io.feed("esp32temp");
+AdafruitIO_Feed *esp32humidity  = io.feed("esp32humidity");
+AdafruitIO_Feed *esp32dew = io.feed("esp32dew");
+
 const int led = 13;
 
-//OLED pins to ESP32 GPIOs via this connecthin:
+//OLED pins to ESP32 GPIOs via this connection:
 //OLED_SDA -- GPIO4
 //OLED_SCL -- GPIO15
 //OLED_RST -- GPIO16
@@ -61,29 +77,6 @@ void get_vals(){
   tupleString = String("(") + String(t_f, 1) + ", " + String(h, 1) + ", " + String(dp_f, 1) + ", )";
 }
 
-void handleRoot() {
-  digitalWrite(led, 1);
-  server.send(200, "text/plain", tupleString);
-  digitalWrite(led, 0);
-}
-
-void handleNotFound() {
-  digitalWrite(led, 1);
-  String message = "File Not Found\n\n";
-  message += "URI: ";
-  message += server.uri();
-  message += "\nMethod: ";
-  message += (server.method() == HTTP_GET) ? "GET" : "POST";
-  message += "\nArguments: ";
-  message += server.args();
-  message += "\n";
-  for (uint8_t i = 0; i < server.args(); i++) {
-    message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
-  }
-  server.send(404, "text/plain", message);
-  digitalWrite(led, 0);
-}
-
 int oldMillis;
 int newMillis;
 
@@ -92,9 +85,22 @@ bool time_to_update(){
   newMillis = millis();
   if(newMillis-oldMillis > 1000){
     gt_1s = true;
+    oldMillis = newMillis;
   }
-  oldMillis = newMillis;
   return gt_1s;
+}
+
+int oldMillisAdafruit;
+int newMillisAdafruit;
+
+bool time_to_update_adafruit(){
+  bool gt_10s = false;
+  newMillisAdafruit = millis();
+  if(newMillisAdafruit-oldMillisAdafruit > 10000){
+    gt_10s = true;
+    oldMillisAdafruit = newMillisAdafruit;
+  }
+  return gt_10s;
 }
 
 void setup() {
@@ -104,50 +110,52 @@ void setup() {
   pinMode(RST,OUTPUT);
 //  pinMode(Vext, OUTPUT);
 //  digitalWrite(Vext, HIGH);    // OLED USE Vext as power supply, must turn ON Vext before OLED init
-  delay(50); 
-
-  Serial.begin(115200);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
+  delay(50);
 
   // Initialising the UI will init the display too.
   display.init();
-
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
+
+  Serial.begin(115200);
+  // wait for serial monitor to open
+  while(! Serial);
+  
+  Serial.print("Connecting to Adafruit IO");
+
+  display.clear();
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawString(0, 0, "Connecting to Adafruit");
+  display.display();
+
+  // connect to io.adafruit.com
+  io.connect();
+
+  // wait for a connection
+  bool toggle = true;
+  while(io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    display.clear();
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    if (toggle) {
+      display.drawString(0, 0, "Connecting to Adafruit...");
+    } else {
+      display.drawString(0, 0, "Connecting to Adafruit");
+    }
+    display.display();
+    toggle = !toggle;
+    delay(500);
+  }
+
+  // we are connected
+  Serial.println();
+  Serial.println(io.statusText());
 
   Serial.println("SHT31 test");
   if (! sht31.begin(0x44)) {   // Set to 0x45 for alternate i2c addr
     Serial.println("Couldn't find SHT31");
     while (1) delay(1);
   }
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  
-  Serial.println("");
-  Serial.print("Connected to ");
-  Serial.println(ssid);
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  if (MDNS.begin("esp32")) {
-    Serial.println("MDNS responder started");
-  }
-
-  server.on("/", handleRoot);
-
-  server.on("/inline", []() {
-    server.send(200, "text/plain", "this works as well");
-  });
-
-  server.onNotFound(handleNotFound);
-
-  server.begin();
-  Serial.println("HTTP server started");
 }
 
 #define VALUE_MARGIN 70
@@ -179,7 +187,7 @@ void drawVals(String temp, String humidity, String dewpoint) {
 int display_en = true;
 
 void loop() {
-  server.handleClient();
+  io.run();
   if(time_to_update()){
     get_vals();
   
@@ -193,6 +201,18 @@ void loop() {
       display.clear();
       display.display();
     }
+  }
+  if(time_to_update_adafruit()) {
+    Serial.print("Updating Adafruit with: ");
+    Serial.print( round(t_f*10)/10.0 );
+    Serial.print( ", ");
+    Serial.print( round(h*10)/10.0 );
+    Serial.print( ", ");
+    Serial.print( round(dp_f*10)/10.0 );
+    Serial.print( ", ");
+    esp32temp->save( round(t_f*10)/10.0 );
+    esp32humidity->save( round(h*10)/10.0 );
+    esp32dew->save( round(dp_f*10)/10.0 );
   }
 
 //  if (! isnan(t_c)) {  // check if 'is not a number'

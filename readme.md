@@ -1,6 +1,8 @@
 # OLED_Humidity
 Implements an SHT31 temperature and humidity sensor, and an onboard calculation for dew point.
 
+The AdafruitIO variant posts temp, humidity, and dew point samples to Adafruit.io for logging and analysis
+
 ## Hardware
 As written, the sketch targets a Heltec ESP32 dev kit with OLED display [Amazon Link](https://www.amazon.com/MakerFocus-Development-0-96inch-Display-Compatible/dp/B076KJZ5QM/ref=sr_1_2?ie=UTF8&qid=1542564126&sr=8-2&keywords=heltec). The ESP32 provides a main application processor as well as WiFi and possibly in the future, BLE connectivity. This dev kit was picked specifically for the addition of an OLED display, which is used to display the three values live. Since BLE is currently unused, it's probably trivial to port this sketch to an ESP8266 with OLED, like [this one](https://www.amazon.com/MakerFocus-ESP8266-Development-Display-Support/dp/B076JDVRLP/ref=sr_1_3?ie=UTF8&qid=1542564286&sr=8-3&keywords=esp8266+oled). Drawing code would need to be changed for the new display dimensions.
 
@@ -16,7 +18,7 @@ Temp, humidity, and dew point are shown on the OLED display locally for instanta
 Temp, humidity, and dew point are echoed (in fahrenheit) over UART in the form of a python Tuple. For instance, (76.7, 53.6, 58.4), in the form (temp, humdiity, dew point).
 
 ### Network
-REST endpoints are provided to query the sensor over the network. 
+Samples are posted to Adafruit.io
 
 ## Host Software
 I've implemented a Python tool to interface with the sensor. The original version listens for sensor values over the UART interface. An updated version queries the sensor on the local network, so that the computer doesn't need to remain tethered to the sensor.
